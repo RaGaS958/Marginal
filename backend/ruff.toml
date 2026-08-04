@@ -1,0 +1,16 @@
+[lint]
+# BLE001 ("do not catch blind Exception") is disabled project-wide, not
+# per-site, because it's wrong for this codebase's central design
+# decision rather than an occasional exception to it.
+#
+# resilience.py's `resilient` / `resilient_multi_provider` decorators
+# exist specifically so a graph node can NEVER raise, regardless of what
+# goes wrong inside it -- see that module's docstring for why this
+# matters more than usual here (LangGraph's own error_handler does not
+# reliably protect parallel siblings in the same superstep, verified
+# against langgraph==1.2.8 with three standalone repro scripts). The
+# `except Exception` in both decorators, and the one in main.py's SSE
+# endpoint guarding the graph invocation itself, are the mechanism that
+# guarantee holds -- narrowing them to specific exception types would
+# reopen the exact failure mode this architecture was built to close.
+ignore = ["BLE001"]

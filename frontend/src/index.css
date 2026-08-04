@@ -1,0 +1,151 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+@theme {
+  --color-surface: #FCFBF9;
+  --color-surface-dim: #F5F2EB;
+  --color-surface-bright: #FFFFFF;
+  --color-surface-container-lowest: #FFFFFF;
+  --color-surface-container-low: #F6F4EE;
+  --color-surface-container: #F1ECE1;
+  --color-surface-container-high: #E5E0D4;
+  --color-surface-container-highest: #D4CEBF;
+  --color-on-surface: #18181B;
+  --color-on-surface-variant: #52525B;
+  --color-inverse-surface: #18181B;
+  --color-inverse-on-surface: #F6F4EE;
+  --color-outline: #D4D4D8;
+  --color-outline-variant: #E4E4E7;
+  
+  /* Primary Accent: Golden (Home tab, Logo, AI text) */
+  --color-primary: #EAA020;
+  --color-on-primary: #FFFFFF;
+  --color-primary-container: #F59E0B;
+  --color-on-primary-container: #FFFFFF;
+  
+  /* Secondary Accent: Teal (Start Free Analysis button) */
+  --color-secondary: #208A74;
+  --color-on-secondary: #FFFFFF;
+  --color-secondary-container: #1D8271;
+  --color-on-secondary-container: #FFFFFF;
+  
+  /* Tertiary Accent: Beige */
+  --color-tertiary: #D6D3D1;
+  --color-on-tertiary: #1C1917;
+  --color-tertiary-container: #F5F5F4;
+  --color-on-tertiary-container: #44403C;
+  
+  --color-error: #EF4444;
+  --color-on-error: #FFFFFF;
+  --color-error-container: #FEE2E2;
+  --color-on-error-container: #991B1B;
+  
+  --color-background: #FCFBF9;
+  --color-on-background: #18181B;
+  
+  --font-label-mono: "JetBrains Mono", monospace;
+  --font-meta-data: "JetBrains Mono", monospace;
+  --font-body-md: "Inter", sans-serif;
+  --font-body-lg: "Inter", sans-serif;
+  --font-display-lg: "Playfair Display", serif;
+  --font-display-lg-mobile: "Playfair Display", serif;
+  --font-headline-md: "Inter", sans-serif;
+  
+  --text-label-mono: 13px;
+  --text-label-mono--line-height: 16px;
+  --text-label-mono--letter-spacing: 0.05em;
+  --text-label-mono--font-weight: 500;
+  
+  --text-meta-data: 11px;
+  --text-meta-data--line-height: 14px;
+  --text-meta-data--font-weight: 400;
+
+  --text-body-md: 16px;
+  --text-body-md--line-height: 24px;
+  --text-body-md--font-weight: 400;
+
+  --text-body-lg: 18px;
+  --text-body-lg--line-height: 28px;
+  --text-body-lg--font-weight: 400;
+
+  --text-display-lg: 56px;
+  --text-display-lg--line-height: 64px;
+  --text-display-lg--letter-spacing: -0.03em;
+  --text-display-lg--font-weight: 700;
+
+  --text-display-lg-mobile: 40px;
+  --text-display-lg-mobile--line-height: 48px;
+  --text-display-lg-mobile--font-weight: 700;
+  --text-display-lg-mobile--letter-spacing: -0.02em;
+
+  --text-headline-md: 24px;
+  --text-headline-md--line-height: 32px;
+  --text-headline-md--font-weight: 600;
+
+  --spacing-margin-mobile: 24px;
+  --spacing-margin-desktop: 48px;
+  --spacing-unit: 8px;
+  --spacing-gutter: 24px;
+  --spacing-max-width: 1280px;
+
+  --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 20px rgba(212, 175, 55, 0.3);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-on-surface font-body-md selection:bg-primary-container/30 selection:text-primary antialiased;
+  }
+}
+
+@layer utilities {
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  .animate-float-delay-1 {
+    animation: float 7s ease-in-out infinite 1s;
+  }
+  .animate-float-delay-2 {
+    animation: float 8s ease-in-out infinite 2s;
+  }
+  .animate-float-delay-3 {
+    animation: float 6.5s ease-in-out infinite 0.5s;
+  }
+  .glass-panel {
+    @apply bg-surface-container-lowest/80 backdrop-blur-md border border-outline-variant/80 shadow-sm rounded-2xl;
+  }
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary;
+  }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-secondary-container text-on-secondary-container px-6 py-3 rounded-lg font-body-md font-medium inline-flex items-center justify-center gap-2 transition-colors hover:bg-secondary;
+  }
+  
+  .paper-card {
+    @apply bg-surface-container-lowest/80 backdrop-blur-md border border-outline-variant/80 shadow-sm rounded-2xl p-6;
+  }
+}
+
+/* Custom scrollbar for sleek modern feel */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-outline-variant);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-outline);
+}

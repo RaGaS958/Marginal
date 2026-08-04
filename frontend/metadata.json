@@ -1,0 +1,6 @@
+{
+  "name": "Marginal",
+  "description": "A rigorous digital manuscript review environment designed for academics and researchers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
