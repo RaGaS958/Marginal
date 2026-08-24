@@ -59,7 +59,7 @@ LLM_TIMEOUT_SECONDS = 20
 
 # --- Groq: fast tier (extraction, classification, keyword-style nodes) ---
 GROQ_FAST = ChatGroq(
-    model="llama-3.1-8b-instant",
+    model="llama3-8b-8192",
     temperature=0,
     max_tokens=1024,
     timeout=LLM_TIMEOUT_SECONDS,
@@ -68,7 +68,7 @@ GROQ_FAST = ChatGroq(
 
 # --- Groq: core tier (needs more reasoning depth, still on Groq's speed) ---
 GROQ_CORE = ChatGroq(
-    model="llama-3.3-70b-versatile",
+    model="llama3-70b-8192",
     temperature=0,
     max_tokens=2048,
     timeout=LLM_TIMEOUT_SECONDS,
