@@ -20,6 +20,16 @@ error, malformed response) never takes down the whole search -- it just
 contributes zero papers and one entry in the returned errors list,
 consistent with the graceful-degradation contract the rest of the
 pipeline follows. This function itself never raises.
+
+Every source call and the top-level search are instrumented with
+@traceable so LangSmith shows the full literature retrieval tree:
+  literature_search_impl
+    |- semantic_scholar_search (query 1)
+    |- semantic_scholar_search (query 2)
+    |- openalex_search (query 1)
+    |- openalex_search (query 2)
+    |- arxiv_search          (CS/ML domains only)
+    |- crossref_search       (fallback only)
 """
 from __future__ import annotations
 
@@ -30,6 +40,7 @@ import re
 import xml.etree.ElementTree as ET
 
 import httpx
+from langsmith import traceable
 
 from .rate_limit import SEMANTIC_SCHOLAR_LIMITER
 
@@ -85,48 +96,69 @@ def _source_failure_message(source: str, query: str, exc: BaseException) -> str:
     return f"{source}: {reason}. Results from this source were skipped."
 
 
+@traceable(
+    name="semantic_scholar_search",
+    run_type="retriever",
+    tags=["literature", "semantic_scholar"],
+)
 async def _search_semantic_scholar(client: httpx.AsyncClient, query: str) -> tuple[list[dict], str | None]:
     headers = {}
     key = os.environ.get("SEMANTIC_SCHOLAR_KEY")
     if key:
         headers["x-api-key"] = key
-    try:
-        # Semantic Scholar's stated limit is 1 req/sec, cumulative across
-        # every endpoint. literature_search_impl fires several of these
-        # concurrently via asyncio.gather -- acquire() here is what keeps
-        # that from becoming a burst of simultaneous requests; the
-        # TokenBucket's internal lock serializes concurrent callers
-        # correctly rather than letting them all through at once.
-        await SEMANTIC_SCHOLAR_LIMITER.acquire()
-        resp = await client.get(
-            "https://api.semanticscholar.org/graph/v1/paper/search",
-            params={
-                "query": query,
-                "limit": PER_SOURCE_LIMIT,
-                "fields": "title,year,authors,citationCount,externalIds,url",
-            },
-            headers=headers,
-            timeout=REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        papers = [
-            {
-                "title": p.get("title") or "",
-                "authors": [a.get("name", "") for a in (p.get("authors") or [])],
-                "year": p.get("year"),
-                "source": "semantic_scholar",
-                "citation_count": p.get("citationCount"),
-                "url": p.get("url"),
-            }
-            for p in data.get("data", []) or []
-            if p.get("title")
-        ]
-        return papers, None
-    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-        return [], _source_failure_message("semantic_scholar", query, exc)
+
+    max_retries = 2
+    for attempt in range(max_retries + 1):
+        try:
+            # Semantic Scholar's stated limit is 1 req/sec, cumulative across
+            # every endpoint. literature_search_impl fires several of these
+            # concurrently via asyncio.gather -- acquire() here is what keeps
+            # that from becoming a burst of simultaneous requests; the
+            # TokenBucket's internal lock serializes concurrent callers
+            # correctly rather than letting them all through at once.
+            await SEMANTIC_SCHOLAR_LIMITER.acquire()
+            resp = await client.get(
+                "https://api.semanticscholar.org/graph/v1/paper/search",
+                params={
+                    "query": query,
+                    "limit": PER_SOURCE_LIMIT,
+                    "fields": "title,year,authors,citationCount,externalIds,url",
+                },
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            papers = [
+                {
+                    "title": p.get("title") or "",
+                    "authors": [a.get("name", "") for a in (p.get("authors") or [])],
+                    "year": p.get("year"),
+                    "source": "semantic_scholar",
+                    "citation_count": p.get("citationCount"),
+                    "url": p.get("url"),
+                }
+                for p in data.get("data", []) or []
+                if p.get("title")
+            ]
+            return papers, None
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429 and attempt < max_retries:
+                wait = 2 ** (attempt + 1)  # 2s, 4s
+                logger.info("semantic_scholar: 429 on attempt %d, retrying in %ds", attempt + 1, wait)
+                await asyncio.sleep(wait)
+                continue
+            return [], _source_failure_message("semantic_scholar", query, exc)
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            return [], _source_failure_message("semantic_scholar", query, exc)
+    return [], None  # unreachable, but keeps type checkers happy
 
 
+@traceable(
+    name="openalex_search",
+    run_type="retriever",
+    tags=["literature", "openalex"],
+)
 async def _search_openalex(client: httpx.AsyncClient, query: str) -> tuple[list[dict], str | None]:
     key = os.environ.get("OPENALEX_API_KEY")
     if not key:
@@ -197,10 +229,15 @@ def _parse_arxiv_atom(xml_text: str) -> list[dict]:
     return papers
 
 
+@traceable(
+    name="arxiv_search",
+    run_type="retriever",
+    tags=["literature", "arxiv"],
+)
 async def _search_arxiv(client: httpx.AsyncClient, query: str) -> tuple[list[dict], str | None]:
     try:
         resp = await client.get(
-            "http://export.arxiv.org/api/query",
+            "https://export.arxiv.org/api/query",
             params={"search_query": f"all:{query}", "max_results": PER_SOURCE_LIMIT},
             timeout=REQUEST_TIMEOUT,
         )
@@ -210,6 +247,11 @@ async def _search_arxiv(client: httpx.AsyncClient, query: str) -> tuple[list[dic
         return [], _source_failure_message("arxiv", query, exc)
 
 
+@traceable(
+    name="crossref_search",
+    run_type="retriever",
+    tags=["literature", "crossref", "fallback"],
+)
 async def _search_crossref(client: httpx.AsyncClient, query: str) -> tuple[list[dict], str | None]:
     params = {"query": query, "rows": PER_SOURCE_LIMIT}
     contact = os.environ.get("CONTACT_EMAIL")
@@ -258,6 +300,23 @@ def _dedupe_and_rank(papers: list[dict]) -> list[dict]:
     return sorted(seen.values(), key=lambda p: p.get("citation_count") or 0, reverse=True)
 
 
+def _dedupe_errors(errors: list[str]) -> list[str]:
+    """Collapse duplicate error messages (e.g. multiple 'semantic_scholar:
+    rate-limited' from concurrent per-query calls) into a single entry."""
+    seen: set[str] = set()
+    unique: list[str] = []
+    for e in errors:
+        if e not in seen:
+            seen.add(e)
+            unique.append(e)
+    return unique
+
+
+@traceable(
+    name="literature_search_impl",
+    run_type="retriever",
+    tags=["literature", "pipeline"],
+)
 async def literature_search_impl(
     client: httpx.AsyncClient, queries: list[str], research_domain: str
 ) -> tuple[list[dict], list[str]]:
@@ -270,6 +329,7 @@ async def literature_search_impl(
 
     errors: list[str] = []
     used_queries = queries[:MAX_QUERIES_USED]
+    is_cs_ml = _looks_cs_ml_adjacent(research_domain)
 
     primary_calls = [
         *(_search_semantic_scholar(client, q) for q in used_queries),
@@ -283,7 +343,7 @@ async def literature_search_impl(
         if err:
             errors.append(err)
 
-    if _looks_cs_ml_adjacent(research_domain):
+    if is_cs_ml:
         arxiv_papers, arxiv_err = await _search_arxiv(client, used_queries[0])
         all_papers.extend(arxiv_papers)
         if arxiv_err:
@@ -296,4 +356,10 @@ async def literature_search_impl(
             errors.append(crossref_err)
 
     ranked = _dedupe_and_rank(all_papers)
-    return ranked[:MAX_PAPERS], errors
+    final = ranked[:MAX_PAPERS]
+
+    logger.info(
+        "literature_search_impl: domain=%r cs_ml=%s queries=%d raw_papers=%d final=%d errors=%d",
+        research_domain, is_cs_ml, len(used_queries), len(all_papers), len(final), len(errors),
+    )
+    return final, _dedupe_errors(errors)

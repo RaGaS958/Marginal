@@ -35,6 +35,7 @@ class ResearchPaperState(TypedDict):
     title: str
     abstract: str
     workflow: str
+    conclusion: str
 
     # --- Phase 1: parallel extraction (5-way fan-out from START) ---
     research_domain: str
@@ -58,6 +59,8 @@ class ResearchPaperState(TypedDict):
     workflow_similarity_rationale: str | None
     keyword_similarity: float | None
     keyword_similarity_rationale: str | None
+    conclusion_similarity: float | None
+    conclusion_similarity_rationale: str | None
 
     # --- Phase 5: novelty score (pure function) ---
     novelty_score: float | None
@@ -80,6 +83,7 @@ def build_initial_state(
     title: str,
     abstract: str,
     workflow: str,
+    conclusion: str,
     request_id: str | None = None,
 ) -> ResearchPaperState:
     """
@@ -99,6 +103,7 @@ def build_initial_state(
         title=title,
         abstract=abstract,
         workflow=workflow,
+        conclusion=conclusion,
         research_domain="",
         problem_statement="",
         methodology="",
@@ -114,6 +119,8 @@ def build_initial_state(
         workflow_similarity_rationale=None,
         keyword_similarity=None,
         keyword_similarity_rationale=None,
+        conclusion_similarity=None,
+        conclusion_similarity_rationale=None,
         novelty_score=None,
         strengths=[],
         weaknesses=[],

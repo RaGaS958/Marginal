@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: marginal-backend
+    runtime: docker
+    region: oregon
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false          # set in Render dashboard → secret
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: OPENALEX_API_KEY
+        sync: false
+      - key: SEMANTIC_SCHOLAR_KEY
+        sync: false
+      - key: CONTACT_EMAIL
+        sync: false
+      # Comma-separated list of allowed frontend origins, e.g. https://marginal.vercel.app
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Database — Supabase PostgreSQL connection string
+      # Set this in the Render dashboard → Environment → Secret Files or Env Vars
+      # Use the Transaction pooler URL from Supabase (port 6543)
+      - key: DATABASE_URL
+        sync: false
+      # LangSmith tracing
+      - key: LANGCHAIN_TRACING_V2
+        value: "true"
+      - key: LANGCHAIN_ENDPOINT
+        value: "https://api.smith.langchain.com"
+      - key: LANGCHAIN_API_KEY
+        sync: false       # set in Render dashboard → secret
+      - key: LANGCHAIN_PROJECT
+        value: "marginal"
+    healthCheckPath: /health
+    autoDeploy: true

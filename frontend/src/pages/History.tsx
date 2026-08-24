@@ -7,6 +7,7 @@ import { HistoryList } from '@/components/history/HistoryList';
 
 export function History() {
   const allHistory = useHistoryStore(state => state.history);
+  const removeRequest = useHistoryStore(state => state.removeRequest);
   const user = useAuthStore(state => state.user);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,7 +104,7 @@ export function History() {
       </div>
 
       {/* History List */}
-      <HistoryList history={filteredHistory} />
+      <HistoryList history={filteredHistory} onDelete={removeRequest} />
 
       {filteredHistory.length > 0 && (
         <div className="flex justify-center items-center gap-2 mt-8">

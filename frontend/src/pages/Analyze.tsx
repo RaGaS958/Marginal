@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Shield, CheckCircle2 } from 'lucide-react';
+import { Play, Shield, CheckCircle2, UploadCloud, Loader2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useHistoryStore } from '@/store/history';
 import { FeatureSteps } from '@/components/FeatureSteps';
+import { extractFromFile } from '@/lib/api';
 
 const schema = z.object({
   // Must match backend/analyzer/main.py's AnalyzeRequest._title_length
@@ -17,20 +18,51 @@ const schema = z.object({
   title: z.string().trim().min(4, 'Title must be at least 4 characters.'),
   abstract: z.string().min(40, 'Minimum 40 characters required for robust analysis.').max(4000, 'Maximum 4000 characters allowed.'),
   methodology: z.string().optional(),
+  conclusion: z.string().max(4000, 'Maximum 4000 characters allowed.').optional(),
 });
 
 type FormData = z.infer<typeof schema>;
 
+/**
+ * The Analyze page provides the main submission form for the user.
+ * Users can either manually enter their manuscript details or upload a PDF/DOCX
+ * to automatically extract and pre-fill the form fields.
+ */
 export function Analyze() {
   const navigate = useNavigate();
   const addRequest = useHistoryStore(state => state.addRequest);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { register, handleSubmit, watch, formState: { errors, isValid } } = useForm<FormData>({
+  const { register, handleSubmit, watch, setValue, formState: { errors, isValid } } = useForm<FormData>({
     resolver: zodResolver(schema),
     mode: 'onChange'
   });
 
   const abstractValue = watch('abstract', '');
+  const conclusionValue = watch('conclusion', '');
+
+  /**
+   * Handles the file selection event for auto-extraction.
+   * Uploads the file to the backend, parses the response, and populates the react-hook-form.
+   */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsExtracting(true);
+    try {
+      const data = await extractFromFile(file);
+      setValue('title', data.title, { shouldValidate: true, shouldDirty: true });
+      setValue('abstract', data.abstract, { shouldValidate: true, shouldDirty: true });
+      setValue('methodology', data.methodology, { shouldValidate: true, shouldDirty: true });
+      setValue('conclusion', data.conclusion, { shouldValidate: true, shouldDirty: true });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Extraction failed');
+    } finally {
+      setIsExtracting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     const id = crypto.randomUUID();
@@ -45,6 +77,7 @@ export function Analyze() {
       title: data.title,
       abstract: data.abstract,
       methodology: data.methodology,
+      conclusion: data.conclusion,
       domain: 'General',
       status: 'running',
       date: new Date().toISOString()
@@ -71,6 +104,41 @@ export function Analyze() {
 
         <div className="paper-card flex flex-col gap-8 relative overflow-hidden">
           <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-l shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+          
+          <div className="relative z-10 flex flex-col gap-4 bg-surface-container-low/30 backdrop-blur-sm border border-outline-variant/50 rounded-lg p-6 border-dashed">
+            <div className="flex flex-col items-center justify-center gap-2 text-center">
+              <div className="w-12 h-12 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container mb-2">
+                {isExtracting ? <Loader2 className="animate-spin" size={24} /> : <UploadCloud size={24} />}
+              </div>
+              <h3 className="font-medium text-on-surface">Auto-fill from Paper</h3>
+              <p className="text-xs text-on-surface-variant max-w-sm">
+                Upload a PDF or DOCX file. We will use AI to extract the title, abstract, methodology, and conclusion for you to verify.
+              </p>
+              
+              <input 
+                type="file" 
+                accept=".pdf,.docx" 
+                className="hidden" 
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                disabled={isExtracting}
+              />
+              <button 
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isExtracting}
+                className="mt-2 btn-secondary text-xs px-4 py-2"
+              >
+                {isExtracting ? 'Extracting...' : 'Select File'}
+              </button>
+            </div>
+          </div>
+          
+          <div className="relative z-10 flex items-center gap-4">
+            <div className="flex-1 h-px bg-outline-variant/50"></div>
+            <span className="font-label-mono text-label-mono text-on-surface-variant uppercase tracking-widest text-[10px]">Or enter manually</span>
+            <div className="flex-1 h-px bg-outline-variant/50"></div>
+          </div>
           
           <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-6 relative z-10">
             {/* Title */}
@@ -123,6 +191,25 @@ export function Analyze() {
                 id="methodology"
                 rows={4}
                 placeholder="Briefly describe your approach, tools, or analytical framework to refine the peer comparison..."
+                className="w-full bg-surface-container-low/30 backdrop-blur-sm border border-outline-variant/50 rounded-lg p-4 font-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all resize-y outline-none shadow-inner"
+              />
+            </div>
+
+            {/* Conclusion */}
+            <div className="flex flex-col gap-2 group mt-4">
+              <div className="flex justify-between items-end mb-1">
+                <label htmlFor="conclusion" className="field-label flex items-center gap-2">
+                  Conclusion & Key Findings <span className="text-on-surface-variant/60 lowercase tracking-normal">(Optional)</span>
+                </label>
+                <div className={`font-meta-data text-meta-data flex items-center gap-1 ${conclusionValue.length > 4000 ? 'text-error' : 'text-on-surface-variant'}`}>
+                  <span className="font-medium">{conclusionValue.length}</span> / 4,000
+                </div>
+              </div>
+              <textarea 
+                {...register('conclusion')}
+                id="conclusion"
+                rows={4}
+                placeholder="Summarize key findings, contributions, and conclusions to enable deeper novelty comparison..."
                 className="w-full bg-surface-container-low/30 backdrop-blur-sm border border-outline-variant/50 rounded-lg p-4 font-body-md text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all resize-y outline-none shadow-inner"
               />
             </div>
@@ -213,6 +300,10 @@ export function Analyze() {
             <li className="flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
               Include clear methodology for better classification.
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+              Include conclusions for comprehensive novelty assessment.
             </li>
           </ul>
         </div>

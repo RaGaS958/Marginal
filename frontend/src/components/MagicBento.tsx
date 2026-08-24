@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState, ReactNode } from 'react';
+import React, { useRef, useEffect, useCallback, useState, ReactNode } from 'react';
 import { gsap } from 'gsap';
 import './MagicBento.css';
 
@@ -59,6 +59,7 @@ interface ParticleCardProps {
   enableTilt?: boolean;
   clickEffect?: boolean;
   enableMagnetism?: boolean;
+  key?: React.Key;
 }
 
 const ParticleCard = ({

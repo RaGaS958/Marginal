@@ -13,6 +13,7 @@ Topology (7 stages, three fan-out points, three merge points):
                                           +-> methodology_similarity -+-> novelty_score
                                           +-> workflow_similarity    -+
                                           +-> keyword_similarity     -+
+                                          +-> conclusion_similarity  -+
                                                                           +-> reviewer_agent    -+
                                                                           +-> improvement_agent -+-> formatter -> END
 
@@ -40,6 +41,7 @@ SIMILARITY_NODES = (
     "methodology_similarity",
     "workflow_similarity",
     "keyword_similarity",
+    "conclusion_similarity",
 )
 
 REVIEW_NODES = (

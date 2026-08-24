@@ -8,12 +8,12 @@ export function Profile() {
   
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
-  const [notifications, setNotifications] = useState(user?.preferences?.notifications ?? true);
+
   const [isSaved, setIsSaved] = useState(false);
 
   const handleSave = (e: FormEvent) => {
     e.preventDefault();
-    updateUser({ name, email, preferences: { notifications } });
+    updateUser({ name, email });
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };
@@ -94,23 +94,6 @@ export function Profile() {
           <h2 className="text-lg font-bold text-on-surface mb-4">Preferences</h2>
           <div className="space-y-4">
             
-            <div className="flex items-center justify-between p-4 bg-surface-container-low rounded-xl border border-outline-variant/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface-variant">
-                  <Bell size={20} />
-                </div>
-                <div>
-                  <h3 className="font-medium text-on-surface text-sm">Email Notifications</h3>
-                  <p className="text-xs text-on-surface-variant">Receive updates about your analysis runs.</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setNotifications(!notifications)}
-                className={`w-12 h-6 rounded-full transition-colors relative ${notifications ? 'bg-primary' : 'bg-surface-variant'}`}
-              >
-                <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${notifications ? 'left-7' : 'left-1'}`}></div>
-              </button>
-            </div>
 
             <div className="flex items-center justify-between p-4 bg-surface-container-low rounded-xl border border-outline-variant/50">
               <div className="flex items-center gap-3">

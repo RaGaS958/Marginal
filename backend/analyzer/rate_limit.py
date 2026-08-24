@@ -48,16 +48,9 @@ GROQ_LIMITER = TokenBucket(rate_per_minute=22)
 # default, tune after checking the Admin Console for your actual account.
 MISTRAL_LIMITER = TokenBucket(rate_per_minute=12)
 
-# Semantic Scholar's API key approval email states this explicitly and
-# without ambiguity: "1 request per second, cumulative across all
-# endpoints... Please set your rate limit to below this threshold to
-# avoid rejected requests." Unlike the Groq/Mistral numbers above (both
-# estimated against partial/unpublished docs), this one is a confirmed,
-# stated hard limit -- 50 RPM leaves a real margin under the 60/min
-# ceiling implied by "1/sec" rather than shaving it thin. Every call site
-# MUST acquire this before hitting api.semanticscholar.org, including
-# concurrent calls fired via asyncio.gather -- the internal asyncio.Lock
-# in TokenBucket.acquire() serializes them correctly even when several
-# callers ask at once, which is exactly the shape literature.py's
-# concurrent per-query fan-out produces.
-SEMANTIC_SCHOLAR_LIMITER = TokenBucket(rate_per_minute=50)
+# Semantic Scholar's API key approval email states: "1 request per second,
+# cumulative across all endpoints." With 3 concurrent queries fanning out
+# via asyncio.gather, 50 RPM still bursts past the 60/min ceiling.
+# 30 RPM (~0.5 req/sec) plus the retry-with-backoff in _search_semantic_scholar
+# gives reliable throughput without tripping 429s on most runs.
+SEMANTIC_SCHOLAR_LIMITER = TokenBucket(rate_per_minute=30)

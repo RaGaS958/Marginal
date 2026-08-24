@@ -11,12 +11,12 @@ export interface AnalyzeRequestPayload {
    * form calls the same concept `methodology` -- mapped at the call site
    * in src/lib/api.ts, not renamed throughout the UI. */
   workflow: string;
+  conclusion: string;
   /** Optional client-generated ID. If supplied, the backend adopts it as
    * the canonical request/thread ID, so a later GET for this same ID
    * (a revisited URL, a stored history entry) resolves correctly. */
   request_id?: string;
   user_email?: string;
-  notify_on_completion?: boolean;
 }
 
 export interface SimilarPaper {
@@ -38,6 +38,7 @@ export interface SimilarityBreakdown {
   methodology: SimilarityDimension;
   workflow: SimilarityDimension;
   keyword: SimilarityDimension;
+  conclusion: SimilarityDimension;
 }
 
 /** The shape shared by the SSE `result` event and the GET response. */
@@ -59,7 +60,6 @@ export interface AnalysisResult {
 export type StreamEvent =
   | { type: "progress"; node: string }
   | ({ type: "result" } & AnalysisResult)
-  | { type: "email_notification"; success: boolean; message: string; email: string }
   | { type: "error"; message: string };
 
 /**
@@ -93,6 +93,7 @@ export const EXECUTION_PHASES = [
       "methodology_similarity",
       "workflow_similarity",
       "keyword_similarity",
+      "conclusion_similarity",
       "novelty_score",
     ],
   },

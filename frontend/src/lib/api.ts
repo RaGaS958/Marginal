@@ -55,6 +55,10 @@ export async function fetchResult(requestId: string, signal?: AbortSignal): Prom
   return response.json();
 }
 
+/**
+ * Checks the health status of the backend API.
+ * Used to conditionally disable the analysis form if the backend is down.
+ */
 export async function checkHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${API_BASE_URL}/health`);
@@ -62,4 +66,28 @@ export async function checkHealth(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Uploads a file (PDF/DOCX) to the backend to have the text extracted 
+ * and parsed into the structured analysis form fields by an LLM.
+ * 
+ * @param file The PDF or DOCX file to extract text from.
+ * @returns A promise resolving to the extracted title, abstract, methodology, and conclusion.
+ */
+export async function extractFromFile(file: File): Promise<{ title: string; abstract: string; methodology: string; conclusion: string }> {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/extract`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Failed to extract document (${response.status}). ${detail}`);
+  }
+
+  return response.json();
 }

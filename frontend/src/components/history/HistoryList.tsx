@@ -1,14 +1,15 @@
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { CheckCircle2, AlertCircle, ArrowRight, FileText, Plus } from 'lucide-react';
+import { CheckCircle2, AlertCircle, ArrowRight, FileText, Plus, Trash2 } from 'lucide-react';
 import { AnalysisRequest } from '@/store/history';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface HistoryListProps {
   history: AnalysisRequest[];
+  onDelete?: (id: string) => void;
 }
 
-export function HistoryList({ history }: HistoryListProps) {
+export function HistoryList({ history, onDelete }: HistoryListProps) {
   const navigate = useNavigate();
 
   if (history.length === 0) {
@@ -47,7 +48,11 @@ export function HistoryList({ history }: HistoryListProps) {
             onClick={() => navigate(`/analysis/${req.id}`)}
             className={`bg-surface-container-lowest border border-outline-variant rounded p-6 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group cursor-pointer ${req.status === 'failed' ? 'opacity-75' : ''}`}
           >
-            <div className={`absolute left-0 top-0 bottom-0 w-1 transition-all group-hover:w-2 ${req.status === 'failed' ? 'bg-error' : req.score != null && req.score < 50 ? 'bg-tertiary-container' : 'bg-primary'}`}></div>
+            <div className={`absolute left-0 top-0 bottom-0 w-1 transition-all group-hover:w-2 ${
+              req.status === 'failed' ? 'bg-error' : 
+              req.status === 'completed' ? 'bg-secondary' : 
+              'bg-primary'
+            }`}></div>
             
             <div className="flex flex-col gap-1 flex-grow pl-2">
               <div className="flex items-center gap-3 mb-1">
@@ -62,7 +67,13 @@ export function HistoryList({ history }: HistoryListProps) {
             <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-outline-variant pt-4 md:pt-0 mt-2 md:mt-0">
               <div className="flex flex-col items-center justify-center px-4 border-r border-outline-variant">
                 <span className="font-meta-data text-meta-data text-on-surface-variant mb-1 uppercase tracking-wider">Novelty Score</span>
-                <span className={`font-label-mono text-label-mono font-bold ${req.status === 'failed' ? 'text-on-surface-variant' : req.score != null && req.score < 50 ? 'text-tertiary-container' : 'text-primary'}`}>
+                <span className={`font-label-mono text-label-mono font-bold ${
+                  req.status === 'failed' ? 'text-on-surface-variant' : 
+                  req.score == null ? 'text-on-surface-variant' :
+                  req.score >= 70 ? 'text-secondary' : 
+                  req.score >= 40 ? 'text-[#D97706]' : 
+                  'text-error'
+                }`}>
                   {req.score != null ? `${req.score} / 100` : '-- / 100'}
                 </span>
               </div>
@@ -72,16 +83,35 @@ export function HistoryList({ history }: HistoryListProps) {
                   <AlertCircle size={16} className="fill-current text-error" />
                   <span className="font-label-mono text-label-mono">Failed</span>
                 </div>
+              ) : req.status === 'completed' ? (
+                <div className="flex items-center gap-2 px-3 py-1 bg-secondary/10 border-secondary/30 text-secondary rounded border">
+                  <CheckCircle2 size={16} className="text-secondary fill-current" />
+                  <span className="font-label-mono text-label-mono">Completed</span>
+                </div>
               ) : (
-                <div className="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded border border-outline-variant">
-                  <CheckCircle2 size={16} className="text-primary fill-current" />
-                  <span className="font-label-mono text-label-mono text-on-surface">{req.status === 'running' ? 'In Progress' : 'Completed'}</span>
+                <div className="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded border border-outline-variant text-on-surface">
+                  <CheckCircle2 size={16} className="text-primary fill-current opacity-50 animate-pulse" />
+                  <span className="font-label-mono text-label-mono">In Progress</span>
                 </div>
               )}
               
-              <button className="text-on-surface-variant hover:text-primary transition-colors p-2 hidden sm:block opacity-0 group-hover:opacity-100 group-hover:translate-x-1 duration-300">
-                <ArrowRight size={20} />
-              </button>
+              <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                {onDelete && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(req.id);
+                    }}
+                    className="text-on-surface-variant hover:bg-error-container hover:text-error transition-colors p-2 rounded-full"
+                    title="Delete from history"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                )}
+                <button className="text-on-surface-variant hover:text-primary transition-colors p-2 hidden sm:block transform group-hover:translate-x-1 duration-300">
+                  <ArrowRight size={20} />
+                </button>
+              </div>
             </div>
           </motion.div>
         ))}

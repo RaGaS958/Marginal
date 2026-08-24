@@ -20,6 +20,16 @@ failing in the same superstep. That's what `resilient` below does. If you
 upgrade langgraph and want to re-check whether error_handler's parallel
 behavior has changed, the three repro scripts referenced in
 docs/known_issues.md are a 30-second way to confirm before relying on it.
+
+TRACING NOTE:
+  We use langsmith.trace() CONTEXT MANAGERS (not @traceable decorators) for
+  per-attempt spans. Using @traceable on an inner *args function inside a
+  loop causes the LangSmith SDK to inspect the signature and repack
+  positional arguments, which strips keyword/positional args from nodes like
+  literature_search(state, config) — confirmed by the TypeError
+  "missing 1 required positional argument: 'config'" on every run where the
+  decorator version was active. Context managers create the span without
+  touching the call chain at all.
 """
 import asyncio
 import logging
@@ -27,6 +37,8 @@ import random
 from functools import wraps
 
 import httpx
+from langsmith import trace as ls_trace
+from langsmith import get_current_run_tree
 from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
@@ -93,6 +105,13 @@ def _user_facing_message(fn_name: str, exc: BaseException) -> str:
     return f"{fn_name} failed: {reason}. This section may be incomplete."
 
 
+def _provider_name(llm) -> str:
+    """Best-effort readable provider label from a LangChain LLM client."""
+    cls = type(llm).__name__
+    model = getattr(llm, "model_name", None) or getattr(llm, "model", None) or "unknown"
+    return f"{cls}/{model}"
+
+
 def resilient(fallback: dict, *, attempts: int = 3, base_delay: float = 1.0):
     """
     Decorator for async graph node functions with a SINGLE provider.
@@ -103,22 +122,66 @@ def resilient(fallback: dict, *, attempts: int = 3, base_delay: float = 1.0):
     - On final failure, ALWAYS returns `fallback` merged with an `errors`
       entry — the node never raises, so it can never take a parallel
       sibling down with it.
+    - Every attempt is traced as a child span via ls_trace() context manager
+      (NOT @traceable — see module docstring for why).
     """
     def decorator(fn):
         @wraps(fn)
         async def wrapped(*args, **kwargs):
             last_exc = None
             for attempt in range(attempts):
-                try:
-                    return await fn(*args, **kwargs)
-                except RETRYABLE_EXCEPTIONS as exc:
-                    last_exc = exc
-                    if attempt < attempts - 1:
-                        delay = base_delay * (2 ** attempt) + random.random() * 0.5
-                        await asyncio.sleep(delay)
-                except Exception as exc:
-                    last_exc = exc
-                    break
+                span_name = f"{fn.__name__}:attempt_{attempt + 1}"
+                with ls_trace(
+                    name=span_name,
+                    run_type="tool",
+                    tags=["resilience", "attempt"],
+                    metadata={
+                        "node": fn.__name__,
+                        "attempt": attempt + 1,
+                        "max_attempts": attempts,
+                    },
+                ):
+                    try:
+                        result = await fn(*args, **kwargs)
+                        # Tag the span as successful
+                        rt = get_current_run_tree()
+                        if rt:
+                            rt.metadata["status"] = "success"
+                        return result
+                    except RETRYABLE_EXCEPTIONS as exc:
+                        last_exc = exc
+                        rt = get_current_run_tree()
+                        if rt:
+                            rt.metadata["status"] = "retryable_error"
+                            rt.metadata["error_type"] = type(exc).__name__
+                        logger.debug(
+                            "%s attempt %d/%d retryable: %r",
+                            fn.__name__, attempt + 1, attempts, exc,
+                        )
+                        if attempt < attempts - 1:
+                            delay = base_delay * (2 ** attempt) + random.random() * 0.5
+                            await asyncio.sleep(delay)
+                    except Exception as exc:
+                        last_exc = exc
+                        rt = get_current_run_tree()
+                        if rt:
+                            rt.metadata["status"] = "non_retryable_error"
+                            rt.metadata["error_type"] = type(exc).__name__
+                        break
+
+            # All attempts exhausted — record a fallback span
+            with ls_trace(
+                name=f"{fn.__name__}:fallback",
+                run_type="tool",
+                tags=["resilience", "fallback"],
+                metadata={
+                    "node": fn.__name__,
+                    "error_type": type(last_exc).__name__ if last_exc else "unknown",
+                    "error_message": str(last_exc)[:300] if last_exc else "",
+                },
+            ):
+                pass  # span exists to surface the failure in LangSmith
+
             result = dict(fallback)
             result["errors"] = [_user_facing_message(fn.__name__, last_exc)]
             return result
@@ -146,24 +209,76 @@ def resilient_multi_provider(fallback: dict, providers, *, attempts_per_provider
 
     The wrapped function must accept `(state, llm)` — the decorator injects
     whichever provider's client is currently being tried.
+
+    Every provider attempt is traced as a child span via ls_trace() context
+    manager so you can see provider name, attempt count, and failures in
+    LangSmith without any risk of arg-stripping from @traceable.
     """
     def decorator(fn):
         @wraps(fn)
         async def wrapped(state, *args, **kwargs):
             last_exc = None
-            for llm, limiter in providers():
+            provider_list = providers()
+
+            for provider_idx, (llm, limiter) in enumerate(provider_list):
+                pname = _provider_name(llm)
+
                 for attempt in range(attempts_per_provider):
-                    try:
-                        await limiter.acquire()
-                        return await fn(state, llm, *args, **kwargs)
-                    except RETRYABLE_EXCEPTIONS as exc:
-                        last_exc = exc
-                        if attempt < attempts_per_provider - 1:
-                            delay = base_delay * (2 ** attempt) + random.random() * 0.5
-                            await asyncio.sleep(delay)
-                    except Exception as exc:
-                        last_exc = exc
-                        break  # non-retryable on this provider -- try the next provider, not another attempt here
+                    span_name = f"{fn.__name__}:{pname}:attempt_{attempt + 1}"
+                    with ls_trace(
+                        name=span_name,
+                        run_type="llm",
+                        tags=["resilience", "provider_attempt"],
+                        metadata={
+                            "node": fn.__name__,
+                            "provider": pname,
+                            "provider_index": provider_idx,
+                            "attempt": attempt + 1,
+                            "max_attempts_per_provider": attempts_per_provider,
+                        },
+                    ):
+                        try:
+                            await limiter.acquire()
+                            result = await fn(state, llm, *args, **kwargs)
+                            rt = get_current_run_tree()
+                            if rt:
+                                rt.metadata["status"] = "success"
+                            return result
+                        except RETRYABLE_EXCEPTIONS as exc:
+                            last_exc = exc
+                            rt = get_current_run_tree()
+                            if rt:
+                                rt.metadata["status"] = "retryable_error"
+                                rt.metadata["error_type"] = type(exc).__name__
+                            logger.debug(
+                                "%s provider=%s attempt %d/%d retryable: %r",
+                                fn.__name__, pname, attempt + 1, attempts_per_provider, exc,
+                            )
+                            if attempt < attempts_per_provider - 1:
+                                delay = base_delay * (2 ** attempt) + random.random() * 0.5
+                                await asyncio.sleep(delay)
+                        except Exception as exc:
+                            last_exc = exc
+                            rt = get_current_run_tree()
+                            if rt:
+                                rt.metadata["status"] = "non_retryable_error"
+                                rt.metadata["error_type"] = type(exc).__name__
+                            break  # non-retryable on this provider — try next
+
+            # All providers exhausted
+            with ls_trace(
+                name=f"{fn.__name__}:all_providers_exhausted",
+                run_type="tool",
+                tags=["resilience", "fallback", "all_providers_failed"],
+                metadata={
+                    "node": fn.__name__,
+                    "error_type": type(last_exc).__name__ if last_exc else "unknown",
+                    "error_message": str(last_exc)[:300] if last_exc else "",
+                    "providers_tried": len(provider_list),
+                },
+            ):
+                pass
+
             result = dict(fallback)
             result["errors"] = [_user_facing_message(fn.__name__, last_exc)]
             return result

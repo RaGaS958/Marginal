@@ -12,20 +12,28 @@ avoids per-request connection-pool churn and is what makes the literature
 layer trivially mockable in tests (inject a fake client, or monkeypatch
 `nodes.literature_search_impl` directly, as test_smoke.py does).
 
-PERSISTENCE: this ships with LangGraph's InMemorySaver, matching the
-documented dev default -- it loses every run on restart. That's a known,
-explicitly-flagged gap (see the Backend Schema doc's Postgres migration
-design), not an oversight; swap `InMemorySaver()` for an `AsyncPostgresSaver`
-instance before this runs anywhere persistent.
+PERSISTENCE: when DATABASE_URL is set in the environment the app uses
+`AsyncPostgresSaver` (backed by Supabase or any Postgres-compatible host)
+so every run is persisted across restarts and the GET /analyze/{request_id}
+endpoint works indefinitely.  When DATABASE_URL is absent (local dev without
+a DB) we fall back to `InMemorySaver` and log a warning -- no crashes, but
+runs are lost on restart, matching the previous behaviour.
 
 RATE LIMITING: per-IP cooldown + a global concurrency cap, both in-process.
-This only works correctly with exactly one backend process. See the
-Implementation Plan's Phase 1a for the Redis-backed replacement required
-before running more than one instance.
+This only works correctly with exactly one backend process. For multi-instance
+deployments replace with a Redis-backed implementation.
 """
 from __future__ import annotations
 
+import sys
 import asyncio
+
+if sys.platform == "win32":
+    # psycopg3 requires SelectorEventLoop on Windows.
+    # We set this at module import time so Uvicorn picks it up locally.
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+import itertools
 import json
 import time
 from collections import defaultdict
@@ -33,17 +41,20 @@ from contextlib import asynccontextmanager
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import os
 import logging
 
 logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
+from langchain_core.tracers import LangChainTracer
 from langgraph.checkpoint.memory import InMemorySaver
+try:
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    _POSTGRES_AVAILABLE = True
+except ImportError:
+    _POSTGRES_AVAILABLE = False
 from pydantic import BaseModel, Field, field_validator
 
 # MUST run before `from .graph import build_graph` below: that import chain
@@ -63,6 +74,7 @@ load_dotenv()
 
 from .graph import build_graph
 from .state import build_initial_state
+from .extractor import extract_paper_details
 
 COOLDOWN_SECONDS = 5.0
 MAX_CONCURRENT_RUNS = 20
@@ -71,51 +83,17 @@ _last_request_at: dict[str, float] = defaultdict(float)
 _active_runs = 0
 _active_runs_lock = asyncio.Lock()
 
-
-def send_notification_email(email: str, request_id: str, title: str, novelty_score: str | float | None):
-    smtp_server = os.getenv("SMTP_SERVER")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER")
-    smtp_password = os.getenv("SMTP_PASSWORD")
-
-    subject = f"Your Marginal Analysis is Complete!"
-    body = f"""
-    <html>
-    <body>
-        <h2>Your analysis for "{title}" is finished.</h2>
-        <p><strong>Novelty Score:</strong> {novelty_score}/10</p>
-        <p>View your full report in your Marginal dashboard!</p>
-    </body>
-    </html>
-    """
-
-    if not all([smtp_server, smtp_user, smtp_password]):
-        print(f"\n--- MOCK EMAIL DISPATCH TO {email} ---\nSubject: {subject}\n{body}\n-----------------------------------\n")
-        return True, "Mock email dispatched"
-
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = email
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'html'))
-        
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-            
-        print(f"Successfully sent email notification to {email}")
-        return True, "Email sent successfully"
-    except Exception as e:
-        logger.error(f"Failed to send email to {email}: {e}")
-        return False, str(e)
+# Monotonically-increasing counter: gives every analysis run a unique
+# LangSmith project name (Marginal_RUN_0, Marginal_RUN_1, …) so each
+# run is isolated in its own project and easy to compare side-by-side.
+_run_counter = itertools.count(0)
 
 
 class AnalyzeRequest(BaseModel):
     title: str = Field(..., max_length=300)
     abstract: str = Field(..., max_length=4000)
-    workflow: str = Field(default="", max_length=2000)
+    workflow: str = Field(default="", max_length=5000)
+    conclusion: str = Field(default="", max_length=4000)
     request_id: str | None = Field(
         default=None,
         description=(
@@ -125,7 +103,6 @@ class AnalyzeRequest(BaseModel):
         ),
     )
     user_email: str | None = Field(default=None)
-    notify_on_completion: bool = Field(default=False)
 
     @field_validator("title")
     @classmethod
@@ -145,20 +122,57 @@ class AnalyzeRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient()
-    # See module docstring -- swap for AsyncPostgresSaver in production.
-    app.state.checkpointer = InMemorySaver()
-    app.state.graph = build_graph().compile(checkpointer=app.state.checkpointer)
-    try:
-        yield
-    finally:
-        await app.state.http_client.aclose()
+
+    database_url = os.getenv("DATABASE_URL", "").strip()
+
+    if database_url and _POSTGRES_AVAILABLE:
+        logger.info("DATABASE_URL found — using AsyncPostgresSaver (Postgres/Supabase).")
+        # AsyncPostgresSaver.from_conn_string() sets up an async connection pool
+        # and automatically creates the LangGraph checkpoint tables on first run.
+        async with AsyncPostgresSaver.from_conn_string(database_url) as checkpointer:
+            await checkpointer.setup()  # idempotent: creates tables if they don't exist
+            app.state.checkpointer = checkpointer
+            app.state.graph = build_graph().compile(checkpointer=checkpointer)
+            try:
+                yield
+            finally:
+                await app.state.http_client.aclose()
+    else:
+        if not database_url:
+            logger.warning(
+                "DATABASE_URL is not set. Using InMemorySaver — analysis runs will be "
+                "lost on restart. Add DATABASE_URL to your .env to enable persistence."
+            )
+        elif not _POSTGRES_AVAILABLE:
+            logger.warning(
+                "langgraph-checkpoint-postgres is not installed. "
+                "Falling back to InMemorySaver."
+            )
+        app.state.checkpointer = InMemorySaver()
+        app.state.graph = build_graph().compile(checkpointer=app.state.checkpointer)
+        try:
+            yield
+        finally:
+            await app.state.http_client.aclose()
 
 
 app = FastAPI(title="Marginal analysis API", lifespan=lifespan)
 
+# ALLOWED_ORIGINS: comma-separated list of permitted front-end origins.
+# In production set this to your Vercel URL, e.g.:
+#   https://marginal.vercel.app,https://www.yourdomain.com
+# Leave unset (or set to "*") for local development.
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*")
+_allow_origins: list[str] = (
+    [o.strip() for o in _raw_origins.split(",") if o.strip()]
+    if _raw_origins != "*"
+    else ["*"]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten to the deployed frontend origin before shipping
+    allow_origins=_allow_origins,
+    allow_credentials=_raw_origins != "*",
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -234,6 +248,7 @@ def _build_analysis_payload(request_id: str, values: dict) -> dict:
             "methodology": _dimension("methodology"),
             "workflow": _dimension("workflow"),
             "keyword": _dimension("keyword"),
+            "conclusion": _dimension("conclusion"),
         },
         "errors": values.get("errors", []),
     }
@@ -243,10 +258,18 @@ def _build_analysis_payload(request_id: str, values: dict) -> dict:
 async def analyze(payload: AnalyzeRequest, request: Request, background_tasks: BackgroundTasks):
     await _acquire_run_slot(_client_ip(request))
 
+    # Each run gets its own LangSmith project so traces never mix.
+    # Naming: Marginal_RUN_0, Marginal_RUN_1, …
+    run_index = next(_run_counter)
+    run_project = f"Marginal_RUN_{run_index}"
+    tracer = LangChainTracer(project_name=run_project)
+    logger.info("Starting run %s (LangSmith project: %s)", run_index, run_project)
+
     initial_state = build_initial_state(
         title=payload.title.strip(),
         abstract=payload.abstract.strip(),
         workflow=payload.workflow.strip(),
+        conclusion=payload.conclusion.strip(),
         request_id=payload.request_id,
     )
     config = {
@@ -254,7 +277,10 @@ async def analyze(payload: AnalyzeRequest, request: Request, background_tasks: B
             "thread_id": initial_state["request_id"],
             "checkpoint_ns": "",
             "http_client": request.app.state.http_client,
-        }
+        },
+        # LangChainTracer here means every LLM call and every LangGraph
+        # node inside this single run is grouped under run_project.
+        "callbacks": [tracer],
     }
 
     async def event_stream():
@@ -266,31 +292,10 @@ async def analyze(payload: AnalyzeRequest, request: Request, background_tasks: B
 
             final_state = await request.app.state.graph.aget_state(config)
             result_payload = _build_analysis_payload(initial_state["request_id"], final_state.values)
-            
+            # Surface the LangSmith project name so the frontend / callers
+            # can link directly to smith.langchain.com for this run.
+            result_payload["langsmith_project"] = run_project
             yield _sse({"type": "result", **result_payload})
-            
-            if payload.notify_on_completion and payload.user_email:
-                try:
-                    success, msg = await asyncio.to_thread(
-                        send_notification_email,
-                        payload.user_email,
-                        initial_state["request_id"],
-                        payload.title,
-                        result_payload.get("novelty_score")
-                    )
-                    yield _sse({
-                        "type": "email_notification", 
-                        "success": success, 
-                        "message": msg, 
-                        "email": payload.user_email
-                    })
-                except Exception as e:
-                    yield _sse({
-                        "type": "email_notification", 
-                        "success": False, 
-                        "message": str(e), 
-                        "email": payload.user_email
-                    })
         except Exception as exc:
             # Every node guarantees it never raises (see resilience.py) --
             # this guards the FastAPI layer around the graph itself: a bad
@@ -319,3 +324,19 @@ async def get_analysis(request_id: str, request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/extract")
+async def extract_file(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith((".pdf", ".docx")):
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
+        
+    try:
+        content = await file.read()
+        extracted_data = await extract_paper_details(content, file.filename)
+        return extracted_data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error extracting file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to extract document.")
