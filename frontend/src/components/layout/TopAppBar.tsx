@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { History, UserCircle, LogOut, Settings, ChevronDown, Menu, X } from 'lucide-react';
+import { History, UserCircle, LogOut, Settings, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { cn } from '@/lib/utils';
 import GooeyNav from '../GooeyNav';
+import StaggeredMenu from '../ui/StaggeredMenu';
 
 function ProfileDropdown() {
   const { user, logout } = useAuthStore();
@@ -70,7 +71,6 @@ export function TopAppBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuthStore();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItems = [
     { label: "Home", href: "/" },
@@ -117,38 +117,31 @@ export function TopAppBar() {
               <UserCircle strokeWidth={1.5} />
             </NavLink>
           )}
-          <button 
-            className="md:hidden text-on-surface-variant hover:text-primary transition-colors p-2 rounded-full hover:bg-surface-variant/50"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label="Toggle mobile menu"
-          >
-            {isMobileMenuOpen ? <X strokeWidth={1.5} /> : <Menu strokeWidth={1.5} />}
-          </button>
+          <div className="md:hidden">
+            <StaggeredMenu
+              position="right"
+              items={[
+                { label: 'Home', ariaLabel: 'Go to home', link: '/' },
+                { label: 'Analyze', ariaLabel: 'Analyze manuscript', link: '/analyze' },
+                { label: 'History', ariaLabel: 'View history', link: '/history' },
+                { label: 'About', ariaLabel: 'About us', link: '/about' }
+              ]}
+              socialItems={[
+                { label: 'Twitter', link: 'https://twitter.com' },
+                { label: 'GitHub', link: 'https://github.com' }
+              ]}
+              displaySocials={true}
+              displayItemNumbering={true}
+              menuButtonColor="#4b5563"
+              openMenuButtonColor="#000"
+              changeMenuColorOnOpen={true}
+              colors={['#f3f4f6', '#e5e7eb']}
+              logoUrl={null}
+              accentColor="#059669" // Primary color variant
+            />
+          </div>
         </div>
       </div>
-      
-      {/* Mobile Menu */}
-      {isMobileMenuOpen && (
-        <div className="md:hidden absolute top-20 left-0 w-full bg-surface/95 backdrop-blur-xl border-b border-outline-variant/30 shadow-lg px-margin-mobile py-4 flex flex-col gap-2 z-40">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.label}
-              to={item.href}
-              onClick={() => setIsMobileMenuOpen(false)}
-              className={({ isActive }) => 
-                cn(
-                  "px-4 py-3 rounded-xl text-base font-medium transition-colors",
-                  isActive 
-                    ? "bg-primary/10 text-primary" 
-                    : "text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface"
-                )
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
-      )}
     </header>
   );
 }
