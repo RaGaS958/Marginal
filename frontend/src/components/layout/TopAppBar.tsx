@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { History, UserCircle, LogOut, Settings, ChevronDown } from 'lucide-react';
+import { History, UserCircle, LogOut, Settings, ChevronDown, Menu, X } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';
 import { cn } from '@/lib/utils';
 import GooeyNav from '../GooeyNav';
@@ -70,6 +70,7 @@ export function TopAppBar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isAuthenticated, logout } = useAuthStore();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const navItems = [
     { label: "Home", href: "/" },
@@ -116,8 +117,38 @@ export function TopAppBar() {
               <UserCircle strokeWidth={1.5} />
             </NavLink>
           )}
+          <button 
+            className="md:hidden text-on-surface-variant hover:text-primary transition-colors p-2 rounded-full hover:bg-surface-variant/50"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label="Toggle mobile menu"
+          >
+            {isMobileMenuOpen ? <X strokeWidth={1.5} /> : <Menu strokeWidth={1.5} />}
+          </button>
         </div>
       </div>
+      
+      {/* Mobile Menu */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden absolute top-20 left-0 w-full bg-surface/95 backdrop-blur-xl border-b border-outline-variant/30 shadow-lg px-margin-mobile py-4 flex flex-col gap-2 z-40">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.label}
+              to={item.href}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className={({ isActive }) => 
+                cn(
+                  "px-4 py-3 rounded-xl text-base font-medium transition-colors",
+                  isActive 
+                    ? "bg-primary/10 text-primary" 
+                    : "text-on-surface-variant hover:bg-surface-variant/50 hover:text-on-surface"
+                )
+              }
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
     </header>
   );
 }
