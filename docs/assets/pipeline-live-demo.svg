@@ -1,0 +1,137 @@
+<svg viewBox="0 0 1000 340" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <style>
+      .bg-panel { fill: #0b0b0f; stroke: #DBA927; stroke-width: 2; }
+      .title { fill: #f2efe6; font-size: 22px; font-weight: 700; }
+      .subtitle { fill: #9c9a94; font-size: 13px; font-style: italic; }
+      .tag { fill: #6f6d67; font-size: 11px; letter-spacing: 1px; }
+      .conn-line { stroke: #2c2b33; stroke-width: 2; }
+      .node-circle {
+        fill: #201f26;
+        stroke: #3a3946;
+        stroke-width: 2;
+        animation-name: nodePulse;
+        animation-duration: 10s;
+        animation-timing-function: ease-in-out;
+        animation-iteration-count: infinite;
+      }
+      .node-num { fill: #6f6d67; font-size: 18px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+      .node-label { fill: #c9c6bd; font-size: 13px; font-weight: 600; text-anchor: middle; }
+      .node-sub { fill: #6f6d67; font-size: 10.5px; text-anchor: middle; }
+      .track { fill: #1c1b22; }
+      .progress-fill {
+        fill: #DBA927;
+        animation: growBar 10s linear infinite;
+      }
+      .caption { fill: #7a7871; font-size: 12px; font-family: 'Courier New', monospace; }
+      .badge-bg {
+        fill: #2f5a41;
+        opacity: 0;
+        animation: badgeReveal 10s ease-in-out infinite;
+      }
+      .badge-text {
+        fill: #d9f2e3; font-size: 13px; font-weight: 700; text-anchor: middle;
+        opacity: 0;
+        animation: badgeReveal 10s ease-in-out infinite;
+      }
+      .n1 { animation-delay: 0s; }
+      .n2 { animation-delay: 1s; }
+      .n3 { animation-delay: 2s; }
+      .n4 { animation-delay: 3s; }
+      .n5 { animation-delay: 4s; }
+      .n6 { animation-delay: 5s; }
+      .n7 { animation-delay: 6s; }
+
+      @keyframes nodePulse {
+        0%   { fill: #201f26; }
+        8%   { fill: #f4c74f; }
+        18%  { fill: #DBA927; }
+        32%  { fill: #201f26; }
+        100% { fill: #201f26; }
+      }
+      @keyframes growBar {
+        0%   { width: 0; }
+        85%  { width: 800px; }
+        100% { width: 800px; }
+      }
+      @keyframes badgeReveal {
+        0%, 78% { opacity: 0; }
+        86%, 97% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+    </style>
+  </defs>
+
+  <rect x="4" y="4" width="992" height="332" rx="16" class="bg-panel" />
+
+  <text x="32" y="40" class="title">Marginal — Live Agent Pipeline</text>
+  <text x="32" y="62" class="subtitle">7 stages · 16 orchestrated LangGraph nodes · streamed to the client over Server-Sent Events</text>
+  <text x="968" y="30" text-anchor="end" class="tag">ILLUSTRATIVE DIAGRAM</text>
+
+  <!-- connecting lines between the 7 phase nodes -->
+  <line x1="128" y1="152" x2="205" y2="152" class="conn-line" />
+  <line x1="261" y1="152" x2="338" y2="152" class="conn-line" />
+  <line x1="394" y1="152" x2="471" y2="152" class="conn-line" />
+  <line x1="527" y1="152" x2="604" y2="152" class="conn-line" />
+  <line x1="660" y1="152" x2="737" y2="152" class="conn-line" />
+  <line x1="793" y1="152" x2="870" y2="152" class="conn-line" />
+
+  <!-- Node 1: Extract -->
+  <g>
+    <circle cx="100" cy="152" r="28" class="node-circle n1" />
+    <text x="100" y="159" class="node-num">1</text>
+    <text x="100" y="200" class="node-label">Extract</text>
+    <text x="100" y="215" class="node-sub">×5 parallel</text>
+  </g>
+  <!-- Node 2: Queries -->
+  <g>
+    <circle cx="233" cy="152" r="28" class="node-circle n2" />
+    <text x="233" y="159" class="node-num">2</text>
+    <text x="233" y="200" class="node-label">Queries</text>
+    <text x="233" y="215" class="node-sub">merge node</text>
+  </g>
+  <!-- Node 3: Literature -->
+  <g>
+    <circle cx="366" cy="152" r="28" class="node-circle n3" />
+    <text x="366" y="159" class="node-num">3</text>
+    <text x="366" y="200" class="node-label">Literature</text>
+    <text x="366" y="215" class="node-sub">4 APIs</text>
+  </g>
+  <!-- Node 4: Similarity -->
+  <g>
+    <circle cx="500" cy="152" r="28" class="node-circle n4" />
+    <text x="500" y="159" class="node-num">4</text>
+    <text x="500" y="200" class="node-label">Similarity</text>
+    <text x="500" y="215" class="node-sub">×5 parallel</text>
+  </g>
+  <!-- Node 5: Score -->
+  <g>
+    <circle cx="633" cy="152" r="28" class="node-circle n5" />
+    <text x="633" y="159" class="node-num">5</text>
+    <text x="633" y="200" class="node-label">Score</text>
+    <text x="633" y="215" class="node-sub">weighted</text>
+  </g>
+  <!-- Node 6: Review -->
+  <g>
+    <circle cx="766" cy="152" r="28" class="node-circle n6" />
+    <text x="766" y="159" class="node-num">6</text>
+    <text x="766" y="200" class="node-label">Review</text>
+    <text x="766" y="215" class="node-sub">×2 parallel</text>
+  </g>
+  <!-- Node 7: Report -->
+  <g>
+    <circle cx="900" cy="152" r="28" class="node-circle n7" />
+    <text x="900" y="159" class="node-num">7</text>
+    <text x="900" y="200" class="node-label">Report</text>
+    <text x="900" y="215" class="node-sub">formatter</text>
+  </g>
+
+  <!-- progress bar -->
+  <rect x="100" y="248" width="800" height="10" rx="5" class="track" />
+  <rect x="100" y="248" width="0" height="10" rx="5" class="progress-fill" />
+  <text x="100" y="276" class="caption">data: {"type":"progress","node":"..."} → data: {"type":"result", ...} → [DONE]</text>
+
+  <!-- report-ready badge -->
+  <rect x="770" y="292" width="196" height="34" rx="17" class="badge-bg" />
+  <text x="868" y="314" class="badge-text">✓ Report Ready</text>
+</svg>
